@@ -1,0 +1,850 @@
+---
+title: "Classifying Real vs Fake Instagram Accounts"
+author: ' Carissa Hicks '
+subtitle: Capstone Project
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(scales)
+library(dplyr)
+```
+
+
+# Data Exploration
+
+
+We have 2 separate files of real and fake account data. We will combine these for the analysis.
+```{r}
+real = read.csv("realAccountData.csv")
+fake = read.csv("fakeAccountData.csv")
+df = rbind(real, fake)
+explore = df
+```
+```{r}
+summary(explore)
+```
+```{r}
+str(explore)
+```
+There are no missing values in the dataset
+```{r}
+any(is.na(explore))
+```
+factoring the categorical data for the visualization aspect
+```{r}
+cols = c("isFake", "userHasProfilPic", "userIsPrivate")
+explore[cols] = lapply(explore[cols], factor)
+```
+```{r}
+levels(explore$isFake) = c("Real", "Fake")
+levels(explore$userHasProfilPic) = c("No", "Yes")
+levels(explore$userIsPrivate) = c("No", "Yes")
+```
+
+```{r}
+ggplot(data=explore, aes(x=isFake, fill=isFake))+
+  geom_bar(color="black")+
+  ggtitle("Fake vs Real Account Data")
+
+ggplot(data=explore, aes(x=userIsPrivate, group = isFake)) + 
+  geom_bar(aes(y=..prop.., fill = factor(..x..)),stat="count")+
+  geom_text(aes(label=scales::percent(..prop..), y=..prop..), stat="count", vjust=-.5)+
+  labs(y="Percent", fill="userIsPrivate")+
+  facet_grid(~isFake)+scale_y_continuous(labels=scales::percent)+
+  ggtitle("Distribution of Private Accounts")+
+  theme(legend.position = "none")
+
+ggplot(data=explore, aes(x=userHasProfilPic, group = isFake)) + 
+  geom_bar(aes(y=..prop.., fill = factor(..x..)),stat="count")+
+  geom_text(aes(label=scales::percent(..prop..), y=..prop..), stat="count", vjust=-.5)+
+  labs(y="Percent", fill="userHasProfilPic")+
+  facet_grid(~isFake)+scale_y_continuous(labels=scales::percent)+
+  ggtitle("Account Has Profile Picture")+
+  theme(legend.position = "none")
+
+ggplot(explore, aes(x=userBiographyLength, y=isFake, fill=isFake))+
+  geom_boxplot()+
+  coord_flip()+
+  ggtitle("Distribution of Biography Lengths")+
+  theme(legend.position = "none")
+
+ggplot(explore, aes(x=userFollowerCount, y=isFake, fill=isFake))+
+  geom_boxplot()+
+  coord_flip()+
+  ggtitle("Distribution of Follower Counts")+
+  theme(legend.position = "none")
+
+ggplot(explore, aes(x=userFollowingCount, y=isFake, fill=isFake))+
+  geom_boxplot()+
+  coord_flip()+
+  ggtitle("Distribution of Following Count")+
+  theme(legend.position = "none")
+
+ggplot(explore, aes(x=userMediaCount, y=isFake, fill=isFake))+
+  geom_boxplot()+
+  coord_flip()+
+  ggtitle("Distribution of Media Counts")+
+  theme(legend.position = "none")
+
+ggplot(explore, aes(x=usernameDigitCount, y=isFake, fill=isFake))+
+  geom_boxplot()+
+  coord_flip()+
+  ggtitle("Distribution of Username Digit Counts")+
+  theme(legend.position = "none")
+
+ggplot(explore, aes(x=usernameLength, y=isFake, fill=isFake))+
+  geom_boxplot()+
+  coord_flip()+
+  ggtitle("Distribution of Username Lengths")+
+  theme(legend.position = "none")
+```
+
+Summary:
+- Our data is imbalanced, we have more data for real accounts than fake accounts
+- Fake accounts are more public, real accounts are more private
+- Almost all real accounts had a profile picture, There was a 40/60 split with the majority of fake accounts having profile pictures
+- Real accounts had greater biography lengths
+- Real accounts had more followers
+- Fake accounts followed more accounts
+- Real accounts had more posts/media
+- Fake accounts had a lot more digits in their username
+- Real and fake accounts had about the same length in usernames
+
+83% of the data is real while 16% is fake
+```{r}
+table(explore$isFake)/sum(table(explore$isFake))*100
+```
+
+```{r}
+min(explore$userFollowerCount)
+min(explore$userFollowingCount)
+nrow(filter(explore, userFollowerCount == 0))
+nrow(filter(explore, userFollowingCount == 0))
+```
+There are several instances where the userFollowerCount and userFollowingCount is 0. This will be changed to 1 so that the followRatio column can be calculated without any undefined values.
+
+```{r}
+df$userFollowerCount[df$userFollowerCount == 0] = 1
+df$userFollowingCount[df$userFollowingCount == 0] = 1
+```
+```{r}
+nrow(filter(df, userFollowerCount == 0))
+nrow(filter(df, userFollowingCount ==0))
+```
+creating an additional feature that gives the ratio of follower count vs following count
+```{r}
+df$followRatio = df$userFollowerCount / df$userFollowingCount
+```
+
+```{r message=FALSE, warning=FALSE}
+explore$followRatio = df$followRatio
+ggplot(explore, aes(x=followRatio, fill=isFake))+
+  geom_histogram(alpha=0.5, position="identity", bins = 100)+
+  ggtitle("Distribution of follow ratios")+
+  geom_vline(aes(xintercept=mean(followRatio)), color="black", linetype="dashed", size=1)+
+  xlim(0, 5)
+```
+
+Exploring the relationships between isFake and the categorical variables using chisquared test and mosaic plot
+
+```{r message=FALSE, warning=FALSE}
+attach(df)
+chisq.test(table(isFake, userHasProfilPic))
+chisq.test(table(isFake, userIsPrivate))
+```
+Using a confidence level of .95 we will use an alpha of 5 percent. Our p-values for these features are much lower than our alpha, therefore they are relevant to our analysis. 
+
+```{r}
+mosaicplot(table(isFake, userHasProfilPic), shade=TRUE, las=2, cex.axis = 0.5)
+mosaicplot(table(isFake, userIsPrivate), shade=TRUE, las=2, cex.axis = 0.5)
+```
+t-test for numeric variables.
+```{r}
+t.test(userBiographyLength~isFake)
+t.test(userFollowerCount~isFake)
+t.test(userFollowingCount~isFake)
+t.test(userMediaCount~isFake)
+t.test(usernameDigitCount~isFake)
+t.test(usernameLength~isFake)
+t.test(followRatio~isFake)
+```
+removing usernameLength because it's p-value is less than the alpha
+```{r}
+df = df[-9]
+summary(df)
+```
+
+#Classifying fake accounts using machine learning models 
+```{r}
+library(pROC)
+library(caret)
+```
+
+```{r}
+#randomize the rows
+set.seed(123)
+df = df[sample(1:nrow(df), replace = FALSE),]
+```
+
+splitting the data into about 80% training, 20% testing
+```{r message=FALSE, warning=FALSE}
+set.seed(123)
+
+train.index = createDataPartition(df$isFake, p=0.8, list=FALSE)
+train = df[train.index, ]
+test = df[-train.index, ]
+```
+
+## 1. Logistic Regression
+
+```{r warning=FALSE}
+model_glm = glm(isFake ~.,
+                data=train,
+                family="binomial")
+```
+
+```{r}
+summary(model_glm)
+```
+```{r}
+library(ROCR)
+prob = predict(model_glm, newdata=test, type="response")
+pred = prediction(prob, test$isFake)
+perf = performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+```
+
+```{r}
+predictions = predict(model_glm, test)
+pred.label=factor(ifelse(predictions>.5,"Fake", "Real"))
+actual.label=factor(ifelse(test$isFake==1, "Fake", "Real"))
+c.matrix = confusionMatrix(pred.label, actual.label)
+c.matrix
+```
+```{r message=FALSE, warning=FALSE}
+glm_acc = c.matrix$overall[1]
+glm_auc = multiclass.roc(as.numeric(test$isFake), as.numeric(predictions))$auc[1]
+glm_precision = c.matrix$byClass[5]
+glm_recall = c.matrix$byClass[6]
+glm_F1 = c.matrix$byclass[7]
+```
+
+### A. ADASYN
+
+using ADASYN to balance the training data only
+```{r message=FALSE, warning=FALSE}
+library(smotefamily)
+
+set.seed(123)
+
+train.adas = ADAS(train, 
+                  train$isFake, 
+                  K = 5)
+```
+
+```{r}
+train.adas = train.adas$data
+as.data.frame(table(train.adas$class))
+```
+```{r}
+train.adas = train.adas[-1]
+train.adas$class = as.numeric(train.adas$class)
+```
+```{r}
+table(train.adas$class)
+```
+```{r warning=FALSE}
+model_adas_glm = glm(class~., 
+                     data = train.adas, 
+                     family="binomial")
+```
+```{r}
+summary(model_adas_glm)
+```
+```{r}
+prob = predict(model_adas_glm, newdata=test, type="response")
+pred = prediction(prob, test$isFake)
+perf = performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+```
+```{r}
+predictions = predict(model_adas_glm, test)
+pred.label=factor(ifelse(predictions>.5,"Fake", "Real"))
+actual.label=factor(ifelse(test$isFake==1, "Fake", "Real"))
+c.matrix = confusionMatrix(pred.label, actual.label)
+c.matrix
+```
+```{r message=FALSE, warning=FALSE}
+glm2_acc = c.matrix$overall[1]
+glm2_auc = multiclass.roc(as.numeric(test$isFake), as.numeric(predictions))$auc[1]
+glm2_precision = c.matrix$byClass[5]
+glm2_recall = c.matrix$byClass[6]
+glm2_F1 = c.matrix$byclass[7]
+```
+
+### B. Cross Validation and ADASYN
+
+```{r}
+train.adas$class[train.adas$class == 1] = "Fake" 
+train.adas$class[train.adas$class == 0] = "Real" 
+
+test$isFake[test$isFake == 1] = "Fake"
+test$isFake[test$isFake == 0] = "Real"
+
+train.adas$class = as.factor(train.adas$class)
+test$isFake = as.factor(test$isFake)
+```
+
+```{r}
+table(train.adas$class)
+table(test$isFake)
+```
+
+```{r}
+ctrlspecs = trainControl(method="cv",
+                         number = 5,
+                         savePredictions = "all",
+                         classProbs = TRUE)
+```
+
+```{r warning=FALSE}
+set.seed(123)
+
+model_adas_cv_glm = train(class~., 
+                          data = train.adas,
+                          method = "glm",
+                          family = binomial,
+                          trControl = ctrlspecs)
+print(model_adas_cv_glm)
+```
+```{r}
+summary(model_adas_cv_glm)
+```
+```{r}
+varImp(model_adas_cv_glm)
+```
+It seems like userBiographyLength and followRatio have no importance to the model.
+```{r}
+predictions = predict(model_adas_cv_glm, newdata=test)
+```
+```{r}
+confusionMatrix(data=predictions, test$isFake)
+```
+```{r}
+prob = predict(model_adas_cv_glm, newdata=test)
+pred = prediction(as.numeric(prob), as.numeric(test$isFake))
+perf = performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+```
+
+```{r message=FALSE, warning=FALSE}
+glm3_acc = c.matrix$overall[1]
+glm3_auc = multiclass.roc(as.numeric(test$isFake), as.numeric(predictions))$auc[1]
+glm3_precision = c.matrix$byClass[5]
+glm3_recall = c.matrix$byClass[6]
+glm3_F1 = c.matrix$byclass[7]
+```
+
+### C. Feature Scaling
+I will normalize the non-factor variables using min-max normalization
+```{r}
+set.seed(123)
+normalize = function(x){
+  return ((x - min(x)) / max(x) - min(x))
+}
+```
+
+```{r}
+table(train.adas$class)
+table(test$isFake)
+```
+
+```{r}
+train.adas$class = as.numeric(train.adas$class)
+test$isFake = as.numeric(test$isFake)
+```
+
+```{r}
+table(test$isFake)
+```
+```{r}
+table(train.adas$class)
+```
+```{r}
+test$isFake[test$isFake == 2] = 0
+train.adas$class[train.adas$class == 2] = 0
+
+table(test$isFake)
+table(train.adas$class)
+```
+
+```{r}
+scale.cols.train = c(1, 2, 3, 6, 7, 8)
+scale.cols.test = c(2, 3, 4, 7, 8, 9)
+
+train.adas.norm = train.adas
+test.norm = test
+
+train.adas.norm[scale.cols.train] = lapply(train.adas.norm[scale.cols.train], normalize)
+test.norm[scale.cols.test] = lapply(test.norm[scale.cols.test], normalize)
+```
+
+```{r}
+str(train.adas.norm)
+```
+```{r}
+str(test.norm)
+```
+```{r}
+table(test.norm$isFake)
+table(train.adas.norm$class)
+```
+```{r}
+train.adas.norm$class[train.adas.norm$class == 1] = "Fake" 
+train.adas.norm$class[train.adas.norm$class == 0] = "Real" 
+```
+```{r}
+test.norm$isFake[test.norm$isFake == 1] = "Fake"
+test.norm$isFake[test.norm$isFake == 0] = "Real"
+```
+```{r}
+train.adas.norm$class = as.factor(train.adas.norm$class)
+test.norm$isFake = as.factor(test.norm$isFake)
+```
+
+```{r}
+table(test.norm$isFake)
+table(train.adas.norm$class)
+```
+
+```{r warning=FALSE}
+set.seed(123)
+
+glm_norm = train(class~., 
+                          data = train.adas.norm,
+                          method = "glm",
+                          family = binomial,
+                          trControl = ctrlspecs)
+```
+```{r}
+summary(glm_norm)
+```
+```{r}
+varImp(glm_norm)
+```
+Even with feature scaling, followRatio and userBiographyLength still had no variable importance to the model.
+
+```{r}
+predictions = predict(glm_norm, newdata=test.norm)
+```
+```{r}
+confusionMatrix(data=predictions, test.norm$isFake)
+```
+```{r}
+prob = predict(glm_norm, newdata=test.norm)
+pred = prediction(as.numeric(prob), as.numeric(test.norm$isFake))
+perf = performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+```
+```{r message=FALSE, warning=FALSE}
+glm4_acc = c.matrix$overall[1]
+glm4_auc = multiclass.roc(as.numeric(test.norm$isFake), as.numeric(predictions))$auc[1]
+glm4_precision = c.matrix$byClass[5]
+glm4_recall = c.matrix$byClass[6]
+glm4_F1 = c.matrix$byclass[7]
+```
+###### * Logistic Regression Results
+
+```{r message=FALSE, warning=FALSE}
+log_reg_performance = matrix(c(glm_acc, glm_auc, glm_precision, glm_recall, glm_F1,
+                               glm2_acc, glm2_auc, glm2_precision, glm2_recall, glm2_F1,
+                               glm3_acc, glm3_auc, glm3_precision, glm3_recall, glm3_F1,
+                               glm4_acc, glm4_auc, glm4_precision, glm4_recall, glm4_F1
+                               ),
+                             ncol = 5, byrow = FALSE)
+
+colnames(log_reg_performance) = c("Accuracy", "AUC", "Precision", "Recall", "F1")
+rownames(log_reg_performance) = c("LR", 
+                                  "LR ADASYN", 
+                                  "LR ADASYN CV", 
+                                  "LR ADASYN CV NORM")
+as.table(log_reg_performance)
+```
+
+## 2. Simple SVM
+
+```{r}
+table(train.adas.norm$class)
+table(test.norm$isFake)
+```
+
+```{r message=FALSE, warning=FALSE}
+set.seed(123)
+t.grid = expand.grid(C = seq(0,2,length=20))
+model_svm = train(class~., 
+                  data = train.adas.norm, 
+                  method = "svmLinear",
+                  trControl = ctrlspecs,
+                  tuneGrid = t.grid)
+model_svm
+```
+```{r}
+varImp(model_svm)
+```
+
+```{r}
+predictions = predict(model_svm, test.norm)
+c.matrix = confusionMatrix(predictions, test.norm$isFake)
+c.matrix
+```
+```{r}
+svm_acc = c.matrix$overall[1]
+svm_auc = multiclass.roc(as.numeric(test.norm$isFake), as.numeric(predictions))$auc[1]
+svm_precision = c.matrix$byClass[5]
+svm_recall = c.matrix$byClass[6]
+svm_F1 = c.matrix$byclass[7]
+```
+
+### A. Without the normalized data
+
+```{r}
+table(train.adas$class)
+table(test$isFake)
+```
+
+```{r}
+train.adas$class[train.adas$class == 1] = "Fake" 
+train.adas$class[train.adas$class == 0] = "Real" 
+
+test$isFake[test$isFake == 1] = "Fake"
+test$isFake[test$isFake == 0] = "Real"
+
+train.adas$class = as.factor(train.adas$class)
+test$isFake = as.factor(test$isFake)
+```
+
+```{r}
+table(train.adas$class)
+table(test$isFake)
+```
+
+```{r message=FALSE, warning=FALSE}
+set.seed(123)
+t.grid = expand.grid(C = seq(0,2,length=20))
+
+model_svm_2 = train(class~., 
+                  data = train.adas, 
+                  method = "svmLinear",
+                  trControl = ctrlspecs,
+                  tuneGrid = t.grid)
+model_svm_2
+```
+```{r}
+varImp(model_svm_2)
+```
+```{r}
+predictions = predict(model_svm_2, test)
+c.matrix = confusionMatrix(predictions, test$isFake)
+c.matrix
+```
+```{r}
+svm2_acc = c.matrix$overall[1]
+svm2_auc = multiclass.roc(as.numeric(test$isFake), as.numeric(predictions))$auc[1]
+svm2_precision = c.matrix$byClass[5]
+svm2_recall = c.matrix$byClass[6]
+svm2_F1 = c.matrix$byclass[7]
+```
+
+##### * SVM Results
+
+```{r}
+svm_performance = matrix(c(svm_acc, svm_auc, svm_precision, svm_recall, svm_F1,
+                          svm2_acc, svm2_auc, svm2_precision, svm2_recall, svm2_F1),
+                             ncol = 5, byrow = FALSE)
+colnames(svm_performance) = c("Accuracy", "AUC", "Precision", "Recall", "F1")
+rownames(svm_performance) = c("SVM w/ Normalization", 
+                                  "SVM w/o Normalization")
+as.table(svm_performance)
+```
+## 3. Random Forest
+
+```{r}
+table(train.adas$class)
+table(test$isFake)
+```
+
+```{r}
+set.seed(123)
+t.grid = expand.grid(mtry = c(1,2,3,4,5,7,8))
+model_rf = train(class ~.,
+                 data = train.adas,
+                 trControl = ctrlspecs,
+                 tuneGrid = t.grid,
+                 method = "rf")
+model_rf
+```
+```{r}
+varImp(model_rf)
+```
+```{r}
+predictions = predict(model_rf, test)
+c.matrix = confusionMatrix(predictions, test$isFake)
+c.matrix
+```
+```{r}
+rf_acc = c.matrix$overall[1]
+rf_auc = multiclass.roc(as.numeric(test$isFake), as.numeric(predictions))$auc[1]
+rf_precision = c.matrix$byClass[5]
+rf_recall = c.matrix$byClass[6]
+rf_F1 = c.matrix$byclass[7]
+```
+##### * Random Forest Results
+```{r}
+rf_performance = matrix(c(rf_acc, rf_auc, rf_precision, rf_recall, rf_F1),
+                             ncol = 5, byrow = FALSE)
+colnames(rf_performance) = c("Accuracy", "AUC", "Precision", "Recall", "F1")
+rownames(rf_performance) = c("Random Forest")
+as.table(rf_performance)
+```
+## 4. Naive Bayes
+
+```{r}
+table(train.adas.norm$class)
+```
+```{r}
+set.seed(123)
+model_nb = train(class~., 
+                  data = train.adas.norm, 
+                  method = "nb",
+                  trControl = ctrlspecs)
+model_nb
+```
+```{r}
+varImp(model_nb)
+```
+```{r}
+predictions = predict(model_nb, test.norm)
+c.matrix = confusionMatrix(predictions, test.norm$isFake)
+c.matrix
+```
+```{r}
+nb_acc = c.matrix$overall[1]
+nb_auc = multiclass.roc(as.numeric(test.norm$isFake), as.numeric(predictions))$auc[1]
+nb_precision = c.matrix$byClass[5]
+nb_recall = c.matrix$byClass[6]
+nb_F1 = c.matrix$byclass[7]
+```
+
+### Naive Bayes with out Normalization
+
+```{r message=FALSE, warning=FALSE}
+set.seed(123)
+model_nb2 = train(class~., 
+                  data = train.adas, 
+                  method = "nb",
+                  trControl = ctrlspecs)
+model_nb2
+```
+```{r}
+varImp(model_nb2)
+```
+```{r message=FALSE, warning=FALSE}
+predictions = predict(model_nb2, test)
+c.matrix = confusionMatrix(predictions, test$isFake)
+c.matrix
+```
+```{r}
+nb2_acc = c.matrix$overall[1]
+nb2_auc = multiclass.roc(as.numeric(test$isFake), as.numeric(predictions))$auc[1]
+nb2_precision = c.matrix$byClass[5]
+nb2_recall = c.matrix$byClass[6]
+nb2_F1 = c.matrix$byclass[7]
+```
+
+##### * Naive Bayes Results
+```{r warning=FALSE}
+nb_performance = matrix(c(nb_acc, nb_auc, nb_precision, nb_recall, nb_F1,
+                          nb2_acc, nb2_auc, nb2_precision, nb2_recall, nb2_F1),
+                             ncol = 5, byrow = FALSE)
+colnames(nb_performance) = c("Accuracy", "AUC", "Precision", "Recall", "F1")
+rownames(nb_performance) = c("Naive Bayes", "Naive Bayes w/o Normalization")
+as.table(nb_performance)
+```
+
+
+
+## 5. Neural Network
+
+```{r}
+table(train.adas.norm$class)
+table(test.norm$isFake)
+```
+```{r}
+train.adas.norm$class = as.numeric(train.adas.norm$class)
+test.norm$isFake = as.numeric(test.norm$isFake)
+
+table(train.adas.norm$class)
+table(test.norm$isFake)
+```
+```{r}
+train.adas.norm$class[train.adas.norm$class == 2] = 0
+test.norm$isFake[test.norm$isFake == 2] = 0
+
+table(train.adas.norm$class)
+table(test.norm$isFake)
+```
+going to split the test data in half to use as a validation set
+```{r}
+set.seed(123)
+
+val.index.nn = createDataPartition(test.norm$isFake, p=0.5, list=FALSE)
+test.norm_nn = as.data.frame(test.norm[val.index.nn, ])
+val.norm_nn = as.data.frame(test.norm[-val.index.nn, ])
+```
+```{r}
+str(val.norm_nn)
+```
+```{r}
+str(test.norm_nn)
+```
+```{r}
+str(train.adas.norm)
+```
+
+```{r}
+train.labels = train.adas.norm$class
+train.nn = train.adas.norm[-9]
+str(train.nn)
+```
+```{r}
+test.labels = test.norm_nn[1]
+test.norm_nn = test.norm_nn[-1]
+str(test.norm_nn)
+```
+```{r}
+val.labels = val.norm_nn[1]
+val.norm_nn = val.norm_nn[-1]
+str(val.norm_nn)
+```
+```{r}
+train.labels = as.data.frame(train.labels)
+```
+
+```{r}
+nrow(val.labels)
+nrow(test.labels)
+nrow(train.labels)
+```
+```{r}
+dim(val.norm_nn)
+dim(test.norm_nn)
+dim(train.nn)
+```
+
+```{r}
+val.norm_nn = as.matrix(val.norm_nn)
+test.norm_nn = as.matrix(test.norm_nn)
+train.nn = as.matrix(train.nn)
+```
+
+```{r}
+val.labels = val.labels$isFake
+test.labels = test.labels$isFake
+train.labels = train.labels$train.labels
+```
+
+```{r message=FALSE, warning=FALSE}
+library(keras)
+library(dplyr)
+library(tfruns)
+```
+
+```{r}
+set.seed(123)
+
+model = keras_model_sequential() %>%
+  layer_dense(units = 32, activation = "relu", input_shape = dim(train.nn)[2])%>%
+  layer_dense(units = 32, activation = "relu")%>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+model %>% compile(loss = "binary_crossentropy", 
+                  optimizer = "adam", 
+                  metrics = "accuracy")
+
+history = model %>% fit(train.nn, train.labels,
+                        batch_size = 32, epochs = 500,
+                        verbose = 0,
+                        validation_data = list(val.norm_nn, val.labels))
+```
+
+```{r}
+plot(history)
+```
+
+```{r}
+history
+```
+```{r}
+predictions = model %>% predict(test.norm_nn) %>% k_argmax()
+```
+```{r}
+predictions = as.array(predictions)
+```
+```{r}
+MLmetrics::Accuracy(predictions, test.labels)
+```
+```{r}
+MLmetrics::AUC(predictions, test.labels)
+```
+```{r}
+c.matrix = confusionMatrix(factor(predictions), factor(test.labels))
+c.matrix
+```
+```{r}
+nn_acc = c.matrix$overall[1]
+nn_auc = multiclass.roc(as.numeric(test.labels), as.numeric(predictions))$auc[1]
+nn_precision = c.matrix$byClass[5]
+nn_recall = c.matrix$byClass[6]
+nn_F1 = c.matrix$byclass[7]
+```
+```{r}
+nn_performance = matrix(c(nn_acc, nn_auc, nn_precision, nn_recall, nn_F1),
+                             ncol = 5, byrow = FALSE)
+colnames(nn_performance) = c("Accuracy", "AUC", "Precision", "Recall", "F1")
+rownames(nn_performance) = c("Neural Network")
+as.table(nn_performance)
+```
+
+
+# Final Results
+
+```{r}
+a = rbind(log_reg_performance, svm_performance)
+b = rbind(a, rf_performance)
+c = rbind(b, nn_performance)
+d = rbind(c, nb_performance)
+d
+```
+
+- best accuracy : LR ADASYN
+- best AUC      : LR ADASYN
+- best precision: LR ADASYN
+- best recall   : LR ADASYN
+- best F1       : LR ADASYN
+
+
+
+
+
+
+
+
+
+
